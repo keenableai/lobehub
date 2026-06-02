@@ -359,7 +359,7 @@ export const skillsRuntime: ServerRuntimeRegistration = {
     // result based on the identifier prefix so the inspector can show
     // "Activate Agent Skill" + the friendly `title`.
     const agentSkillBuiltins: BuiltinSkill[] = context.agentId
-      ? await new AgentDocumentsService(context.serverDB, context.userId)
+      ? await new AgentDocumentsService(context.serverDB, context.userId, context.workspaceId)
           .getAgentSkills(context.agentId)
           .then((skills) =>
             skills.map((skill) => ({

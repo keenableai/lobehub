@@ -50,11 +50,14 @@ export class DocumentService {
   private fileServiceInstance?: FileService;
   private db: LobeChatDatabase;
 
-  constructor(db: LobeChatDatabase, userId: string) {
+  private workspaceId?: string;
+
+  constructor(db: LobeChatDatabase, userId: string, workspaceId?: string) {
     this.userId = userId;
     this.db = db;
-    this.fileModel = new FileModel(db, userId);
-    this.documentModel = new DocumentModel(db, userId);
+    this.workspaceId = workspaceId;
+    this.fileModel = new FileModel(db, userId, workspaceId);
+    this.documentModel = new DocumentModel(db, userId, workspaceId);
   }
 
   private get fileService() {
@@ -64,7 +67,11 @@ export class DocumentService {
   }
 
   private get documentHistoryService() {
-    this.documentHistoryServiceInstance ??= new DocumentHistoryService(this.db, this.userId);
+    this.documentHistoryServiceInstance ??= new DocumentHistoryService(
+      this.db,
+      this.userId,
+      this.workspaceId,
+    );
 
     return this.documentHistoryServiceInstance;
   }
@@ -316,9 +323,13 @@ export class DocumentService {
   async updateDocument(id: string, params: UpdateDocumentParams): Promise<UpdateDocumentResult> {
     return this.db.transaction(async (tx) => {
       const transactionDb = tx as unknown as LobeChatDatabase;
-      const documentModel = new DocumentModel(transactionDb, this.userId);
-      const fileModel = new FileModel(transactionDb, this.userId);
-      const documentHistoryService = new DocumentHistoryService(transactionDb, this.userId);
+      const documentModel = new DocumentModel(transactionDb, this.userId, this.workspaceId);
+      const fileModel = new FileModel(transactionDb, this.userId, this.workspaceId);
+      const documentHistoryService = new DocumentHistoryService(
+        transactionDb,
+        this.userId,
+        this.workspaceId,
+      );
 
       const currentDocument = await documentModel.findById(id);
       if (!currentDocument) {

@@ -1,5 +1,6 @@
 import { BUILTIN_AGENT_SLUGS } from '@lobechat/builtin-agents';
 
+import { stableWorkspaceAwareNavigate } from '@/features/Workspace/stableWorkspaceAwareNavigate';
 import { chatGroupService } from '@/services/chatGroup';
 import { documentService } from '@/services/document';
 import { getAgentStoreState } from '@/store/agent';
@@ -11,7 +12,6 @@ import { useGroupProfileStore } from '@/store/groupProfile';
 import { type HomeStore } from '@/store/home/store';
 import { type StoreSetter } from '@/store/types';
 import { markdownToTxt } from '@/utils/markdownToTxt';
-import { getStableNavigate } from '@/utils/stableNavigate';
 import { setNamespace } from '@/utils/storeDebug';
 
 import { type StarterMode } from './initialState';
@@ -94,7 +94,7 @@ export class HomeInputActionImpl {
       }
 
       // 3. Navigate to Agent profile page
-      getStableNavigate()?.(`/agent/${result.agentId}/profile`);
+      stableWorkspaceAwareNavigate(`/agent/${result.agentId}/profile`);
 
       // 4. Refresh agent list
       this.#get().refreshAgentList();
@@ -169,7 +169,7 @@ export class HomeInputActionImpl {
       }
 
       // 5. Navigate to Group profile page
-      getStableNavigate()?.(`/group/${group.id}/profile`);
+      stableWorkspaceAwareNavigate(`/group/${group.id}/profile`);
 
       // 6. Update groupAgentBuilder's model config and send initial message.
       // Hydrate first so we don't race with the group profile page's own init.
@@ -230,7 +230,7 @@ export class HomeInputActionImpl {
       });
 
       // 3. Navigate to Page
-      getStableNavigate()?.(`/page/${newDoc.id}`);
+      stableWorkspaceAwareNavigate(`/page/${newDoc.id}`);
 
       // 4. Update pageAgent's model config and send initial message. Hydrate
       // first to avoid the same race the agent/group flows hit.

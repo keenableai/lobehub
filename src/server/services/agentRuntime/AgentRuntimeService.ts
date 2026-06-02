@@ -117,6 +117,11 @@ export interface AgentRuntimeServiceOptions {
    * Can pass InMemoryStreamEventManager in test environments
    */
   streamEventManager?: IStreamEventManager;
+  /**
+   * Workspace id for scoping all DB reads/writes (messages, agent_operations).
+   * Falls back to user-personal scope when omitted.
+   */
+  workspaceId?: string;
 }
 
 /**
@@ -152,6 +157,7 @@ export class AgentRuntimeService {
   }
   private serverDB: LobeChatDatabase;
   private userId: string;
+  private workspaceId?: string;
   private messageModel: MessageModel;
   // Lazily constructed because MessageService instantiates a FileService
   // which eagerly creates the S3 client and throws when S3 env vars are
@@ -188,8 +194,10 @@ export class AgentRuntimeService {
     this.execSubAgentTaskCallback = options?.execSubAgentTask;
     this.serverDB = db;
     this.userId = userId;
-    this.messageModel = new MessageModel(db, this.userId);
-    this.completionLifecycle = new CompletionLifecycle(db, userId);
+    this.workspaceId = options?.workspaceId;
+    const workspaceId = this.workspaceId;
+    this.messageModel = new MessageModel(db, this.userId, workspaceId);
+    this.completionLifecycle = new CompletionLifecycle(db, userId, workspaceId);
     this.humanIntervention = new HumanInterventionHandler(db, this.messageModel);
 
     // Initialize ToolExecutionService with dependencies
@@ -282,6 +290,7 @@ export class AgentRuntimeService {
       signal,
       userTimezone,
       initialStepCount = 0,
+      workspaceId,
     } = params;
 
     // Persist initial agent_operations row. CompletionLifecycle owns both
@@ -359,6 +368,7 @@ export class AgentRuntimeService {
           userMemory,
           userTimezone,
           workingDirectory: agentConfig?.chatConfig?.runtimeEnv?.workingDirectory,
+          workspaceId,
           ...appContext,
         },
         maxSteps,
@@ -652,6 +662,7 @@ export class AgentRuntimeService {
               agentId: beforeStepMetadata?.agentId,
               db: this.serverDB,
               userId: beforeStepMetadata?.userId || this.userId,
+              workspaceId: this.workspaceId,
             },
             { ignoreError: true },
           );

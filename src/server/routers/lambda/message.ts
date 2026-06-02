@@ -8,10 +8,12 @@ import { createTimingHelpers, createTimingRequestId } from '@lobechat/utils';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
+import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
 import { MessageModel } from '@/database/models/message';
 import { TopicShareModel } from '@/database/models/topicShare';
 import { CompressionRepository } from '@/database/repositories/compression';
-import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
+import { publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
 import { MessageService } from '@/server/services/message';
@@ -21,21 +23,23 @@ import { basicContextSchema } from './_schema/context';
 
 const { logTiming, runTimedStage } = createTimingHelpers('lobe-server:chat:lobehub:timing');
 
-const messageProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
+const messageProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
+  const wsId = ctx.workspaceId ?? undefined;
 
   return opts.next({
     ctx: {
-      compressionRepo: new CompressionRepository(ctx.serverDB, ctx.userId),
+      compressionRepo: new CompressionRepository(ctx.serverDB, ctx.userId, wsId),
       fileService: new FileService(ctx.serverDB, ctx.userId),
-      messageModel: new MessageModel(ctx.serverDB, ctx.userId),
-      messageService: new MessageService(ctx.serverDB, ctx.userId),
+      messageModel: new MessageModel(ctx.serverDB, ctx.userId, wsId),
+      messageService: new MessageService(ctx.serverDB, ctx.userId, wsId),
     },
   });
 });
 
 export const messageRouter = router({
   addFilesToMessage: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z
         .object({
@@ -55,6 +59,7 @@ export const messageRouter = router({
    * Cancel compression by deleting the compression group and restoring original messages
    */
   cancelCompression: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z.object({
         agentId: z.string(),
@@ -122,6 +127,7 @@ export const messageRouter = router({
    * Returns messages to summarize for frontend AI generation
    */
   createCompressionGroup: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z.object({
         agentId: z.string(),
@@ -143,6 +149,7 @@ export const messageRouter = router({
     }),
 
   createMessage: messageProcedure
+    .use(withScopedPermission('message:create'))
     .input(CreateNewMessageParamsSchema)
     .mutation(async ({ input, ctx }) => {
       // If there's no agentId but has sessionId, resolve agentId from sessionId
@@ -159,6 +166,7 @@ export const messageRouter = router({
    * Finalize compression by updating the group with generated summary
    */
   finalizeCompression: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z.object({
         agentId: z.string(),
@@ -221,7 +229,8 @@ export const messageRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
       }
 
-      const messageModel = new MessageModel(ctx.serverDB, ctx.userId);
+      const wsId = ctx.workspaceId ?? undefined;
+      const messageModel = new MessageModel(ctx.serverDB, ctx.userId, wsId);
       const fileService = new FileService(ctx.serverDB, ctx.userId);
 
       return messageModel.query(queryParams, {
@@ -233,11 +242,14 @@ export const messageRouter = router({
     return ctx.messageModel.rankModels();
   }),
 
-  removeAllMessages: messageProcedure.mutation(async ({ ctx }) => {
-    return ctx.messageModel.deleteAllMessages();
-  }),
+  removeAllMessages: messageProcedure
+    .use(withScopedPermission('message:delete'))
+    .mutation(async ({ ctx }) => {
+      return ctx.messageModel.deleteAllMessages();
+    }),
 
   removeMessage: messageProcedure
+    .use(withScopedPermission('message:delete'))
     .input(
       z
         .object({
@@ -253,12 +265,14 @@ export const messageRouter = router({
     }),
 
   removeMessageQuery: messageProcedure
+    .use(withScopedPermission('message:delete'))
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       return ctx.messageModel.deleteMessageQuery(input.id);
     }),
 
   removeMessages: messageProcedure
+    .use(withScopedPermission('message:delete'))
     .input(
       z
         .object({
@@ -274,6 +288,7 @@ export const messageRouter = router({
     }),
 
   removeMessagesByAssistant: messageProcedure
+    .use(withScopedPermission('message:delete'))
     .input(
       z
         .object({
@@ -293,6 +308,7 @@ export const messageRouter = router({
     }),
 
   removeMessagesByGroup: messageProcedure
+    .use(withScopedPermission('message:delete'))
     .input(
       z.object({
         groupId: z.string(),
@@ -310,6 +326,7 @@ export const messageRouter = router({
     }),
 
   update: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z
         .object({
@@ -357,6 +374,7 @@ export const messageRouter = router({
    * Update message group metadata (e.g., expanded state)
    */
   updateMessageGroupMetadata: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z.object({
         context: z.object({
@@ -376,6 +394,7 @@ export const messageRouter = router({
     }),
 
   updateMessagePlugin: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z
         .object({
@@ -392,6 +411,7 @@ export const messageRouter = router({
     }),
 
   updateMessageRAG: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(UpdateMessageRAGParamsSchema.extend(basicContextSchema.shape))
     .mutation(async ({ input, ctx }) => {
       const { id, value, agentId, ...options } = input;
@@ -401,6 +421,7 @@ export const messageRouter = router({
     }),
 
   updateMetadata: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z
         .object({
@@ -417,6 +438,7 @@ export const messageRouter = router({
     }),
 
   updatePluginError: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z
         .object({
@@ -433,6 +455,7 @@ export const messageRouter = router({
     }),
 
   updatePluginState: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z
         .object({
@@ -449,6 +472,7 @@ export const messageRouter = router({
     }),
 
   updateTTS: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z.object({
         id: z.string(),
@@ -470,6 +494,7 @@ export const messageRouter = router({
     }),
 
   updateToolArguments: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z
         .object({
@@ -490,6 +515,7 @@ export const messageRouter = router({
    * This prevents race conditions when updating multiple fields
    */
   updateToolMessage: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z
         .object({
@@ -510,6 +536,7 @@ export const messageRouter = router({
       return ctx.messageService.updateToolMessage(id, value, resolved);
     }),
   updateTranslate: messageProcedure
+    .use(withScopedPermission('message:update'))
     .input(
       z.object({
         id: z.string(),

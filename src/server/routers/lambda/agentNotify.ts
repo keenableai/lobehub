@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { z } from 'zod';
 
+import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
@@ -21,15 +22,17 @@ const log = debug('lobe-server:agent-notify-router');
 
 const agentNotifyProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
+  const wsId = ctx.workspaceId ?? undefined;
 
   return opts.next({
     ctx: {
-      aiAgentService: new AiAgentService(ctx.serverDB, ctx.userId),
-      messageModel: new MessageModel(ctx.serverDB, ctx.userId),
-      topicModel: new TopicModel(ctx.serverDB, ctx.userId),
+      aiAgentService: new AiAgentService(ctx.serverDB, ctx.userId, { workspaceId: wsId }),
+      messageModel: new MessageModel(ctx.serverDB, ctx.userId, wsId),
+      topicModel: new TopicModel(ctx.serverDB, ctx.userId, wsId),
     },
   });
 });
+const agentNotifyWriteProcedure = agentNotifyProcedure.use(withScopedPermission('message:create'));
 
 const NotifySchema = z.object({
   /** Agent ID to trigger (overrides the topic's default agent) */
@@ -76,7 +79,7 @@ export const agentNotifyRouter = router({
    * role='assistant': content is written directly as an assistant message
    *   continue=true: also trigger a new agent turn after writing
    */
-  notify: agentNotifyProcedure.input(NotifySchema).mutation(async ({ input, ctx }) => {
+  notify: agentNotifyWriteProcedure.input(NotifySchema).mutation(async ({ input, ctx }) => {
     const {
       topicId,
       content,

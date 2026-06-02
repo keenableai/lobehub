@@ -21,11 +21,12 @@ function calculateMarketplaceRelevance(query: string, title: string): number {
 
 const searchProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
+  const wsId = ctx.workspaceId ?? undefined;
 
   return opts.next({
     ctx: {
       discoverService: new DiscoverService({ accessToken: ctx.marketAccessToken }),
-      searchRepo: new SearchRepo(ctx.serverDB, ctx.userId),
+      searchRepo: new SearchRepo(ctx.serverDB, ctx.userId, wsId),
     },
   });
 });

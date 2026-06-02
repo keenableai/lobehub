@@ -5,7 +5,9 @@ import { FileText, PencilLine, Trash } from 'lucide-react';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useKnowledgeBaseTransferMenuItem } from '@/business/client/hooks/useKnowledgeBaseTransferMenuItem';
 import { useCreateNewModal } from '@/features/LibraryModal';
+import { usePermission } from '@/hooks/usePermission';
 import { useKnowledgeBaseStore } from '@/store/library';
 
 interface ActionProps {
@@ -15,12 +17,20 @@ interface ActionProps {
   toggleEditing: (visible?: boolean) => void;
 }
 
-export const useDropdownMenu = ({ id, name, description, toggleEditing }: ActionProps): (() => MenuProps['items']) => {
+export const useDropdownMenu = ({
+  id,
+  name,
+  description,
+  toggleEditing,
+}: ActionProps): (() => MenuProps['items']) => {
   const { t } = useTranslation(['file', 'common']);
   const removeKnowledgeBase = useKnowledgeBaseStore((s) => s.removeKnowledgeBase);
   const { open } = useCreateNewModal();
+  const { allowed: canEdit } = usePermission('edit_own_content');
+  const transferMenuItems = useKnowledgeBaseTransferMenuItem(id);
 
-  const handleDelete = () => {
+  const handleDelete = useCallback(() => {
+    if (!canEdit) return;
     if (!id) return;
 
     confirmModal({
@@ -30,19 +40,21 @@ export const useDropdownMenu = ({ id, name, description, toggleEditing }: Action
       },
       title: t('library.list.confirmRemoveLibrary'),
     });
-  };
+  }, [canEdit, id, removeKnowledgeBase, t]);
 
-  const handleEditDescription = () => {
+  const handleEditDescription = useCallback(() => {
+    if (!canEdit) return;
     open({
       id,
       initialValues: { description: description || '', name },
     });
-  };
+  }, [canEdit, description, id, name, open]);
 
   return useCallback(
     () =>
       [
         {
+          disabled: !canEdit,
           icon: <Icon icon={PencilLine} />,
           key: 'rename',
           label: t('rename', { ns: 'common' }),
@@ -52,6 +64,7 @@ export const useDropdownMenu = ({ id, name, description, toggleEditing }: Action
           },
         },
         {
+          disabled: !canEdit,
           icon: <Icon icon={FileText} />,
           key: 'editDescription',
           label: t('edit', { ns: 'common' }),
@@ -60,15 +73,17 @@ export const useDropdownMenu = ({ id, name, description, toggleEditing }: Action
             handleEditDescription();
           },
         },
+        ...(canEdit ? (transferMenuItems ?? []) : []),
         { type: 'divider' },
         {
           danger: true,
+          disabled: !canEdit,
           icon: <Icon icon={Trash} />,
           key: 'delete',
           label: t('delete', { ns: 'common' }),
           onClick: handleDelete,
         },
       ].filter(Boolean) as MenuProps['items'],
-    [t, id, name, description, removeKnowledgeBase, toggleEditing, handleDelete, handleEditDescription, open],
+    [canEdit, t, toggleEditing, handleDelete, handleEditDescription, transferMenuItems],
   );
 };

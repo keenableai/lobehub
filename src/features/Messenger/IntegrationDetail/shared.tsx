@@ -10,6 +10,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 
+import { usePermission } from '@/hooks/usePermission';
 import { messengerService } from '@/services/messenger';
 
 import AgentSelect from '../AgentSelect';
@@ -229,6 +230,7 @@ interface UserAgentConnectionProps {
 export const UserAgentConnection = memo<UserAgentConnectionProps>(
   ({ extraLabel, link, onSetActive, onUnlink }) => {
     const { t } = useTranslation('messenger');
+    const { allowed: canEdit } = usePermission('edit_own_content');
     const handle = formatUserHandle(link);
     const name = extraLabel ? `${handle} · ${extraLabel}` : handle;
 
@@ -239,7 +241,16 @@ export const UserAgentConnection = memo<UserAgentConnectionProps>(
         name={name}
         status="connected"
         action={
-          <Button danger icon={<Icon icon={Trash2Icon} />} size="small" onClick={onUnlink}>
+          <Button
+            danger
+            disabled={!canEdit}
+            icon={<Icon icon={Trash2Icon} />}
+            size="small"
+            onClick={() => {
+              if (!canEdit) return;
+              onUnlink();
+            }}
+          >
             {t('messenger.detail.disconnect')}
           </Button>
         }
@@ -249,9 +260,13 @@ export const UserAgentConnection = memo<UserAgentConnectionProps>(
             {t('messenger.activeAgent')}
           </Text>
           <AgentSelect
+            disabled={!canEdit}
             placeholder={t('messenger.activeAgentPlaceholder')}
             value={link.activeAgentId ?? undefined}
-            onChange={(agentId) => onSetActive((agentId ?? null) as string | null)}
+            onChange={(agentId) => {
+              if (!canEdit) return;
+              onSetActive((agentId ?? null) as string | null);
+            }}
           />
         </Flexbox>
       </ConnectionRow>
@@ -288,16 +303,14 @@ interface UseLinkActionsArgs {
   platform: MessengerPlatform;
 }
 
-export const useLinkActions = ({
-  installationsMutate,
-  linksMutate,
-  name,
-  platform,
-}: UseLinkActionsArgs) => {
+export const useLinkActions = ({ linksMutate, name, platform }: UseLinkActionsArgs) => {
   const { t } = useTranslation('messenger');
   const { message } = App.useApp();
+  const { allowed: canEdit } = usePermission('edit_own_content');
 
   const handleSetActive = async (tenantId: string, agentId: string | null) => {
+    if (!canEdit) return;
+
     try {
       await messengerService.setActiveAgent({
         agentId,
@@ -312,6 +325,8 @@ export const useLinkActions = ({
   };
 
   const handleUnlink = (tenantId: string) => {
+    if (!canEdit) return;
+
     confirmModal({
       content: t('messenger.unlinkConfirm', { platform: name }),
       okButtonProps: { danger: true },
@@ -361,8 +376,11 @@ export const useDisconnectInstallation = ({
 }: UseDisconnectInstallationArgs) => {
   const { t } = useTranslation('messenger');
   const { message } = App.useApp();
+  const { allowed: canEdit } = usePermission('edit_own_content');
 
   return (id: string, copy: DisconnectInstallationCopy) => {
+    if (!canEdit) return;
+
     confirmModal({
       content: copy.confirm,
       okButtonProps: { danger: true },

@@ -93,10 +93,10 @@ export class AgentDocumentsService {
   private documentService: DocumentService;
   private topicDocumentModel: TopicDocumentModel;
 
-  constructor(db: LobeChatDatabase, userId: string) {
-    this.agentDocumentModel = new AgentDocumentModel(db, userId);
-    this.documentService = new DocumentService(db, userId);
-    this.topicDocumentModel = new TopicDocumentModel(db, userId);
+  constructor(db: LobeChatDatabase, userId: string, workspaceId?: string) {
+    this.agentDocumentModel = new AgentDocumentModel(db, userId, workspaceId);
+    this.documentService = new DocumentService(db, userId, workspaceId);
+    this.topicDocumentModel = new TopicDocumentModel(db, userId, workspaceId);
   }
 
   private async projectDocumentContent<T extends AgentDocument | AgentDocumentWithRules>(

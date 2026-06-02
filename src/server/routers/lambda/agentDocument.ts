@@ -6,10 +6,12 @@ import {
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
+import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
 import { AgentDocumentModel } from '@/database/models/agentDocuments';
 import { TopicModel } from '@/database/models/topic';
 import { TopicDocumentModel } from '@/database/models/topicDocument';
-import { authedProcedure, router } from '@/libs/trpc/lambda';
+import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import { emitAgentDocumentToolOutcomeSafely } from '@/server/services/agentDocuments/toolOutcome';
@@ -148,19 +150,27 @@ const liteXMLOperationSchema = z.union([
   }),
 ]);
 
-const agentDocumentProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
+const agentDocumentProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
+  const wsId = ctx.workspaceId ?? undefined;
 
   return opts.next({
     ctx: {
-      agentDocumentModel: new AgentDocumentModel(ctx.serverDB, ctx.userId),
-      agentDocumentService: new AgentDocumentsService(ctx.serverDB, ctx.userId),
-      agentDocumentVfsService: new AgentDocumentVfsService(ctx.serverDB, ctx.userId),
-      topicModel: new TopicModel(ctx.serverDB, ctx.userId),
-      topicDocumentModel: new TopicDocumentModel(ctx.serverDB, ctx.userId),
+      agentDocumentModel: new AgentDocumentModel(ctx.serverDB, ctx.userId, wsId),
+      agentDocumentService: new AgentDocumentsService(ctx.serverDB, ctx.userId, wsId),
+      agentDocumentVfsService: new AgentDocumentVfsService(ctx.serverDB, ctx.userId, wsId),
+      topicModel: new TopicModel(ctx.serverDB, ctx.userId, wsId),
+      topicDocumentModel: new TopicDocumentModel(ctx.serverDB, ctx.userId, wsId),
     },
   });
 });
+
+// Write variant gates viewers out of every agent-document mutation
+// (upsert/delete/rename/copy/skill-edit, plus the VFS path-based writes).
+// Read endpoints keep using `agentDocumentProcedure`.
+const agentDocumentProcedureWrite = agentDocumentProcedure.use(
+  withScopedPermission('document:update'),
+);
 
 const emitCreateDocumentToolOutcome = async (input: {
   agentDocumentId?: string;
@@ -238,7 +248,7 @@ export const agentDocumentRouter = router({
   /**
    * Create or update a document
    */
-  upsertDocument: agentDocumentProcedure
+  upsertDocument: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -263,7 +273,7 @@ export const agentDocumentRouter = router({
   /**
    * Delete a specific document
    */
-  deleteDocument: agentDocumentProcedure
+  deleteDocument: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -280,7 +290,7 @@ export const agentDocumentRouter = router({
   /**
    * Delete all documents for an agent
    */
-  deleteAllDocuments: agentDocumentProcedure
+  deleteAllDocuments: agentDocumentProcedureWrite
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.agentDocumentService.deleteAllDocuments(input.agentId);
@@ -289,7 +299,7 @@ export const agentDocumentRouter = router({
   /**
    * Initialize documents from a template set
    */
-  initializeFromTemplate: agentDocumentProcedure
+  initializeFromTemplate: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -326,7 +336,7 @@ export const agentDocumentRouter = router({
   /**
    * Clone documents from one agent to another
    */
-  cloneDocuments: agentDocumentProcedure
+  cloneDocuments: agentDocumentProcedureWrite
     .input(
       z.object({
         sourceAgentId: z.string(),
@@ -457,7 +467,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: write document by VFS path
    */
-  writeDocumentByPath: agentDocumentProcedure
+  writeDocumentByPath: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -483,7 +493,7 @@ export const agentDocumentRouter = router({
       }
     }),
 
-  createSkillByPath: agentDocumentProcedure
+  createSkillByPath: agentDocumentProcedureWrite
     .input(createMountedSkillSchema)
     .mutation(async ({ ctx, input }) => {
       try {
@@ -502,7 +512,7 @@ export const agentDocumentRouter = router({
       }
     }),
 
-  updateSkillByPath: agentDocumentProcedure
+  updateSkillByPath: agentDocumentProcedureWrite
     .input(updateMountedSkillSchema)
     .mutation(async ({ ctx, input }) => {
       try {
@@ -519,7 +529,7 @@ export const agentDocumentRouter = router({
       }
     }),
 
-  deleteSkillByPath: agentDocumentProcedure
+  deleteSkillByPath: agentDocumentProcedureWrite
     .input(deleteMountedSkillSchema)
     .mutation(async ({ ctx, input }) => {
       try {
@@ -534,7 +544,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: create a VFS directory
    */
-  mkdirDocumentByPath: agentDocumentProcedure
+  mkdirDocumentByPath: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -561,7 +571,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: rename or move a VFS path
    */
-  renameDocumentByPath: agentDocumentProcedure
+  renameDocumentByPath: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -590,7 +600,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: copy a VFS path
    */
-  copyDocumentByPath: agentDocumentProcedure
+  copyDocumentByPath: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -619,7 +629,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: soft-delete a VFS path
    */
-  deleteDocumentByPath: agentDocumentProcedure
+  deleteDocumentByPath: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -672,7 +682,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: restore a trash entry
    */
-  restoreDocumentFromTrashByPath: agentDocumentProcedure
+  restoreDocumentFromTrashByPath: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -694,7 +704,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: permanently remove a trash entry
    */
-  deleteDocumentPermanentlyByPath: agentDocumentProcedure
+  deleteDocumentPermanentlyByPath: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -718,7 +728,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: associate an existing document with an agent
    */
-  associateDocument: agentDocumentProcedure
+  associateDocument: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -732,7 +742,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: create document
    */
-  createDocument: agentDocumentProcedure
+  createDocument: agentDocumentProcedureWrite
     .input(
       z
         .object({
@@ -788,7 +798,7 @@ export const agentDocumentRouter = router({
    * Create an agent document and associate it with a topic in one call.
    * Used by the topic → page flow to create an agent document.
    */
-  createForTopic: agentDocumentProcedure
+  createForTopic: agentDocumentProcedureWrite
     .input(
       z
         .object({
@@ -864,7 +874,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: modify document nodes by id through LiteXML.
    */
-  modifyNodes: agentDocumentProcedure
+  modifyNodes: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -883,7 +893,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: replace document content by id
    */
-  replaceDocumentContent: agentDocumentProcedure
+  replaceDocumentContent: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -902,7 +912,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: remove document by id
    */
-  removeDocument: agentDocumentProcedure
+  removeDocument: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -917,7 +927,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: copy document by id
    */
-  copyDocument: agentDocumentProcedure
+  copyDocument: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -940,7 +950,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: rename document by id
    */
-  renameDocument: agentDocumentProcedure
+  renameDocument: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),
@@ -963,7 +973,7 @@ export const agentDocumentRouter = router({
   /**
    * Tool-oriented: update document load rule by id
    */
-  updateLoadRule: agentDocumentProcedure
+  updateLoadRule: agentDocumentProcedureWrite
     .input(
       z.object({
         agentId: z.string(),

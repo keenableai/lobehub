@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import {
   getEnabledMessengerPlatforms,
   getMessengerDiscordConfig,
@@ -20,6 +21,7 @@ import type { DecryptedMessengerInstallation } from '@/database/models/messenger
 import { MessengerInstallationModel } from '@/database/models/messengerInstallation';
 import { agents, users } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
+import { buildWorkspaceWhere } from '@/database/utils/workspace';
 import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
@@ -95,10 +97,15 @@ const messengerProcedure = authedProcedure.use(serverDatabase).use(async (opts) 
   const { ctx } = opts;
   return opts.next({
     ctx: {
-      messengerLinkModel: new MessengerAccountLinkModel(ctx.serverDB, ctx.userId),
+      messengerLinkModel: new MessengerAccountLinkModel(
+        ctx.serverDB,
+        ctx.userId,
+        ctx.workspaceId ?? undefined,
+      ),
     },
   });
 });
+const messengerWriteProcedure = messengerProcedure.use(withScopedPermission('agent:update'));
 
 export const messengerRouter = router({
   /**
@@ -225,7 +232,7 @@ export const messengerRouter = router({
    * required so the user's first IM message has somewhere to land — they can
    * always change it later via `/agents` (tap to switch) or the per-agent UI.
    */
-  confirmLink: messengerProcedure
+  confirmLink: messengerWriteProcedure
     .input(
       z.object({
         initialAgentId: z.string().min(1, 'messenger.error.pickDefaultAgent'),
@@ -283,7 +290,15 @@ export const messengerRouter = router({
       const [agentRow] = await ctx.serverDB
         .select({ id: agents.id, title: agents.title })
         .from(agents)
-        .where(and(eq(agents.id, input.initialAgentId), eq(agents.userId, ctx.userId)))
+        .where(
+          and(
+            eq(agents.id, input.initialAgentId),
+            buildWorkspaceWhere(
+              { userId: ctx.userId, workspaceId: ctx.workspaceId ?? undefined },
+              agents,
+            ),
+          ),
+        )
         .limit(1);
       if (!agentRow) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'messenger.error.agentNotFound' });
@@ -364,7 +379,10 @@ export const messengerRouter = router({
       .from(agents)
       .where(
         and(
-          eq(agents.userId, ctx.userId),
+          buildWorkspaceWhere(
+            { userId: ctx.userId, workspaceId: ctx.workspaceId ?? undefined },
+            agents,
+          ),
           or(ne(agents.virtual, true), eq(agents.slug, INBOX_SESSION_ID)),
         ),
       )
@@ -410,7 +428,7 @@ export const messengerRouter = router({
    * the active agent (next inbound message will get the "/agents to pick"
    * prompt). Pass `tenantId` to scope to a specific Slack workspace.
    */
-  setActiveAgent: messengerProcedure
+  setActiveAgent: messengerWriteProcedure
     .input(
       z.object({
         agentId: z.string().nullable(),
@@ -424,7 +442,15 @@ export const messengerRouter = router({
         const [agentRow] = await ctx.serverDB
           .select({ id: agents.id })
           .from(agents)
-          .where(and(eq(agents.id, input.agentId), eq(agents.userId, ctx.userId)))
+          .where(
+            and(
+              eq(agents.id, input.agentId),
+              buildWorkspaceWhere(
+                { userId: ctx.userId, workspaceId: ctx.workspaceId ?? undefined },
+                agents,
+              ),
+            ),
+          )
           .limit(1);
         if (!agentRow) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'messenger.error.agentNotFound' });
@@ -446,7 +472,7 @@ export const messengerRouter = router({
     }),
 
   /** Remove the user's account link for a platform (optionally scoped to one tenant). */
-  unlink: messengerProcedure
+  unlink: messengerWriteProcedure
     .input(z.object({ platform: platformEnum, tenantId: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
       if (!(await isMessengerPlatformEnabled(input.platform))) {
@@ -509,7 +535,7 @@ export const messengerRouter = router({
    * Slack's `auth.revoke` to invalidate the token server-side is a
    * nice-to-have (frees a workspace bot slot), deferred to PR3.
    */
-  uninstallInstallation: messengerProcedure
+  uninstallInstallation: messengerWriteProcedure
     .input(z.object({ installationId: z.string().min(1) }))
     .mutation(async ({ input, ctx }) => {
       const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey().catch(() => undefined);

@@ -7,8 +7,10 @@ import type { FC, ReactNode } from 'react';
 import { memo } from 'react';
 
 import DiffAllToolbar from '@/features/EditorCanvas/DiffAllToolbar';
+import PageMetaBar from '@/features/PageEditor/PageMetaBar';
 import WideScreenContainer from '@/features/WideScreenContainer';
 import { useRegisterFilesHotkeys } from '@/hooks/useHotkeys';
+import { usePermission } from '@/hooks/usePermission';
 import { usePageStore } from '@/store/page';
 import { StyleSheet } from '@/utils/styles';
 
@@ -73,6 +75,7 @@ interface PageEditorCanvasProps {
 }
 
 const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader }) => {
+  const { allowed: canEdit } = usePermission('edit_own_content');
   const editor = usePageEditorStore((s) => s.editor);
   const documentId = usePageEditorStore((s) => s.documentId);
 
@@ -85,9 +88,17 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader 
     <Flexbox flex={1} height={'100%'} style={styles.editorContainer}>
       {!fullWidthHeader && headerSlot}
       <Flexbox horizontal height={'100%'} style={styles.contentWrapper} width={'100%'}>
-        <WideScreenContainer wrapperStyle={{ cursor: 'text' }} onClick={() => editor?.focus()}>
+        <WideScreenContainer
+          wrapperStyle={{ cursor: canEdit ? 'text' : 'not-allowed' }}
+          onClick={() => {
+            if (!canEdit) return;
+
+            editor?.focus();
+          }}
+        >
           <Flexbox flex={1} style={styles.editorContent}>
             <TitleSection />
+            <PageMetaBar />
             <EditorCanvas />
           </Flexbox>
         </WideScreenContainer>
@@ -139,6 +150,7 @@ export const PageEditor: FC<PageEditorProps> = ({
   title,
   emoji,
 }) => {
+  const { allowed: canEdit } = usePermission('edit_own_content');
   const deletePage = usePageStore((s) => s.deletePage);
 
   return (
@@ -150,11 +162,27 @@ export const PageEditor: FC<PageEditorProps> = ({
           pageId={pageId}
           title={title}
           onBack={onBack}
-          onDelete={() => deletePage(pageId || '')}
           onDocumentIdChange={onDocumentIdChange}
-          onEmojiChange={onEmojiChange}
-          onSave={onSave}
-          onTitleChange={onTitleChange}
+          onDelete={() => {
+            if (!canEdit) return;
+
+            deletePage(pageId || '');
+          }}
+          onEmojiChange={(emoji) => {
+            if (!canEdit) return;
+
+            onEmojiChange?.(emoji);
+          }}
+          onSave={() => {
+            if (!canEdit) return;
+
+            onSave?.();
+          }}
+          onTitleChange={(nextTitle) => {
+            if (!canEdit) return;
+
+            onTitleChange?.(nextTitle);
+          }}
         >
           <PageEditorCanvas fullWidthHeader={fullWidthHeader} header={header} />
         </PageEditorProvider>

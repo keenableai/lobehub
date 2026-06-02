@@ -74,15 +74,18 @@ export class TaskService {
   private topicModel: TopicModel;
   private userId: string;
 
-  constructor(db: LobeChatDatabase, userId: string) {
+  private workspaceId?: string;
+
+  constructor(db: LobeChatDatabase, userId: string, workspaceId?: string) {
     this.db = db;
     this.userId = userId;
-    this.agentModel = new AgentModel(db, userId);
-    this.taskModel = new TaskModel(db, userId);
-    this.taskTopicModel = new TaskTopicModel(db, userId);
-    this.topicModel = new TopicModel(db, userId);
-    this.briefModel = new BriefModel(db, userId);
-    this.briefService = new BriefService(db, userId);
+    this.workspaceId = workspaceId;
+    this.agentModel = new AgentModel(db, userId, workspaceId);
+    this.taskModel = new TaskModel(db, userId, workspaceId);
+    this.taskTopicModel = new TaskTopicModel(db, userId, workspaceId);
+    this.topicModel = new TopicModel(db, userId, workspaceId);
+    this.briefModel = new BriefModel(db, userId, workspaceId);
+    this.briefService = new BriefService(db, userId, workspaceId);
   }
 
   /**
@@ -125,7 +128,9 @@ export class TaskService {
     }
 
     if (target.operationId) {
-      const aiAgentService = new AiAgentService(this.db, this.userId);
+      const aiAgentService = new AiAgentService(this.db, this.userId, {
+        workspaceId: this.workspaceId,
+      });
       await aiAgentService.interruptTask({ operationId: target.operationId });
     }
 
@@ -142,7 +147,9 @@ export class TaskService {
     if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: 'Topic not found.' });
 
     if (target.status === 'running' && target.operationId) {
-      const aiAgentService = new AiAgentService(this.db, this.userId);
+      const aiAgentService = new AiAgentService(this.db, this.userId, {
+        workspaceId: this.workspaceId,
+      });
       await aiAgentService.interruptTask({ operationId: target.operationId });
     }
 
@@ -231,7 +238,9 @@ export class TaskService {
 
     if (resolved.status === 'running' && status !== 'running') {
       const topics = await this.taskTopicModel.findByTaskId(resolved.id);
-      const aiAgentService = new AiAgentService(this.db, this.userId);
+      const aiAgentService = new AiAgentService(this.db, this.userId, {
+        workspaceId: this.workspaceId,
+      });
 
       for (const t of topics) {
         if (t.status !== 'running' || !t.topicId) continue;
@@ -296,7 +305,7 @@ export class TaskService {
       }
 
       // Unlock blocked tasks and actually kick them off via the runner.
-      const runner = new TaskRunnerService(this.db, this.userId);
+      const runner = new TaskRunnerService(this.db, this.userId, this.workspaceId);
       const cascade = await runner.cascadeOnCompletion(task.id);
       unlocked.push(...cascade.started);
       paused.push(...cascade.paused);
@@ -317,7 +326,7 @@ export class TaskService {
    */
   async previewSubtaskLayers(idOrIdentifier: string): Promise<SubtaskGraphPlan> {
     const parent = await this.resolveOrThrow(idOrIdentifier);
-    const graph = new TaskGraphService(this.db, this.userId);
+    const graph = new TaskGraphService(this.db, this.userId, this.workspaceId);
     const { plan } = await graph.planForParent(parent.id);
     return plan;
   }
@@ -329,7 +338,7 @@ export class TaskService {
    */
   async runReadySubtasks(idOrIdentifier: string): Promise<RunReadySubtasksResult> {
     const parent = await this.resolveOrThrow(idOrIdentifier);
-    const graph = new TaskGraphService(this.db, this.userId);
+    const graph = new TaskGraphService(this.db, this.userId, this.workspaceId);
     const { descendants, plan } = await graph.planForParent(parent.id);
 
     if (plan.layers.length === 0) {
@@ -343,7 +352,7 @@ export class TaskService {
 
     const firstLayer = plan.layers[0];
     const identifierToId = new Map(descendants.map((d) => [d.identifier, d.id]));
-    const runner = new TaskRunnerService(this.db, this.userId);
+    const runner = new TaskRunnerService(this.db, this.userId, this.workspaceId);
 
     const kickedOff: string[] = [];
     const failed: { error: string; identifier: string }[] = [];

@@ -41,13 +41,16 @@ const toAgentSignalSnapshotEvents = (
 export class CompletionLifecycle {
   private readonly messageModel: MessageModel;
   private readonly agentOperationModel: AgentOperationModel;
+  private readonly workspaceId?: string;
 
   constructor(
     private readonly serverDB: LobeChatDatabase,
     private readonly userId: string,
+    workspaceId?: string,
   ) {
-    this.messageModel = new MessageModel(serverDB, userId);
-    this.agentOperationModel = new AgentOperationModel(serverDB, userId);
+    this.workspaceId = workspaceId;
+    this.messageModel = new MessageModel(serverDB, userId, workspaceId);
+    this.agentOperationModel = new AgentOperationModel(serverDB, userId, workspaceId);
   }
 
   /**
@@ -196,6 +199,7 @@ export class CompletionLifecycle {
                 agentId: metadata?.agentId,
                 db: this.serverDB,
                 userId: metadata?.userId || this.userId,
+                workspaceId: this.workspaceId,
               },
               { ignoreError: true },
             )
@@ -216,6 +220,7 @@ export class CompletionLifecycle {
                 agentId: metadata?.agentId,
                 db: this.serverDB,
                 userId: metadata?.userId || this.userId,
+                workspaceId: this.workspaceId,
               },
               { ignoreError: true },
             );

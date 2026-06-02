@@ -16,7 +16,7 @@ export const webBrowsingRuntime: ServerRuntimeRegistration = {
       documentService: canSaveDocuments
         ? {
             associateDocument: async (documentId) => {
-              const service = new AgentDocumentsService(serverDB, userId);
+              const service = new AgentDocumentsService(serverDB, userId, context.workspaceId);
               await service.associateDocument(agentId, documentId);
             },
             createDocument: async (params) => {

@@ -190,6 +190,7 @@ const archiveRuntimeToolResult = async (
     toolCallId,
     topicId,
     userId,
+    workspaceId,
   }: {
     agentId?: string | null;
     identifier?: string;
@@ -198,6 +199,7 @@ const archiveRuntimeToolResult = async (
     toolCallId?: string;
     topicId?: string | null;
     userId?: string;
+    workspaceId?: string;
   },
 ): Promise<ToolExecutionResultResponse> => {
   const archive = await archiveToolResultIfNeeded({
@@ -209,6 +211,7 @@ const archiveRuntimeToolResult = async (
     toolCallId,
     topicId,
     userId,
+    workspaceId,
   });
 
   return archive.content === result.content ? result : { ...result, content: archive.content };
@@ -381,6 +384,13 @@ export interface RuntimeExecutorContext {
   tracingContextEngine?: (input: unknown, output: unknown) => void;
   userId?: string;
   userTimezone?: string;
+  /**
+   * Workspace scoping for ownership filters on models/services constructed
+   * inside the agent runtime. Threaded down from the originating request
+   * (chat/task router) and forwarded to tool executions via
+   * `ToolExecutionContext.workspaceId`.
+   */
+  workspaceId?: string;
 }
 
 export const createRuntimeExecutors = (
@@ -573,7 +583,11 @@ export const createRuntimeExecutors = (
         const agentId = state.metadata?.agentId;
         if (agentId && ctx.serverDB && ctx.userId) {
           try {
-            const agentDocService = new AgentDocumentsService(ctx.serverDB, ctx.userId);
+            const agentDocService = new AgentDocumentsService(
+              ctx.serverDB,
+              ctx.userId,
+              state.metadata?.workspaceId ?? ctx.workspaceId,
+            );
             const docs = await agentDocService.getAgentDocuments(agentId);
             if (docs.length > 0) {
               agentDocuments = toAgentContextDocuments(docs);
@@ -607,7 +621,11 @@ export const createRuntimeExecutors = (
               await import('@lobechat/builtin-tool-web-onboarding/utils');
             const { UserPersonaModel } = await import('@/database/models/userMemory/persona');
             const onboardingService = new OnboardingService(ctx.serverDB, ctx.userId);
-            const docService = new AgentDocumentsService(ctx.serverDB, ctx.userId);
+            const docService = new AgentDocumentsService(
+              ctx.serverDB,
+              ctx.userId,
+              state.metadata?.workspaceId ?? ctx.workspaceId,
+            );
             const personaModel = new UserPersonaModel(ctx.serverDB, ctx.userId);
 
             const [onboardingState, soulDoc, persona, userInfo] = await Promise.all([
@@ -2085,6 +2103,7 @@ export const createRuntimeExecutors = (
                 toolResultMaxLength,
                 topicId: ctx.topicId,
                 userId: ctx.userId,
+                workspaceId: state.metadata?.workspaceId ?? ctx.workspaceId,
               }),
             {
               isInterrupted: () => isOperationInterrupted(ctx),
@@ -2103,6 +2122,7 @@ export const createRuntimeExecutors = (
           toolCallId: chatToolPayload.id,
           topicId: ctx.topicId ?? state.metadata?.topicId,
           userId: ctx.userId,
+          workspaceId: state.metadata?.workspaceId ?? ctx.workspaceId,
         });
         const executionTime = executionResult.executionTime;
         const isSuccess = executionResult.success;
@@ -2608,6 +2628,7 @@ export const createRuntimeExecutors = (
                     toolResultMaxLength: batchAgentConfig?.chatConfig?.toolResultMaxLength,
                     topicId: ctx.topicId,
                     userId: ctx.userId,
+                    workspaceId: state.metadata?.workspaceId ?? ctx.workspaceId,
                   }),
                 {
                   isInterrupted: () => isOperationInterrupted(ctx),
@@ -2626,6 +2647,7 @@ export const createRuntimeExecutors = (
               toolCallId: chatToolPayload.id,
               topicId: ctx.topicId ?? state.metadata?.topicId,
               userId: ctx.userId,
+              workspaceId: state.metadata?.workspaceId ?? ctx.workspaceId,
             });
             const executionTime = executionResult.executionTime;
             const isSuccess = executionResult.success;

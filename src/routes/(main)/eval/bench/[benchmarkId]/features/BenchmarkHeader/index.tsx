@@ -20,8 +20,8 @@ import {
 import { type LucideIcon } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useEvalStore } from '@/store/eval';
 
 import BenchmarkEditModal from '../../../../features/BenchmarkEditModal';
@@ -98,7 +98,7 @@ const BenchmarkHeader = memo<BenchmarkHeaderProps>(
     totalCases,
   }) => {
     const { t } = useTranslation('eval');
-    const navigate = useNavigate();
+    const navigate = useWorkspaceAwareNavigate();
     const deleteBenchmark = useEvalStore((s) => s.deleteBenchmark);
     const refreshBenchmarkDetail = useEvalStore((s) => s.refreshBenchmarkDetail);
     const [editOpen, setEditOpen] = useState(false);

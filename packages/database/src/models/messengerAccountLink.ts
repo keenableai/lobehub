@@ -1,4 +1,4 @@
-import { and, eq, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 
 import type { MessengerAccountLinkItem, NewMessengerAccountLink } from '../schemas';
 import { messengerAccountLinks } from '../schemas';
@@ -44,11 +44,24 @@ export class MessengerAccountLinkRelinkRequiredError extends Error {
 export class MessengerAccountLinkModel {
   private userId: string;
   private db: LobeChatDatabase;
+  private workspaceId?: string;
 
-  constructor(db: LobeChatDatabase, userId: string) {
+  constructor(db: LobeChatDatabase, userId: string, workspaceId?: string) {
     this.userId = userId;
     this.db = db;
+    this.workspaceId = workspaceId;
   }
+
+  private ownership = (): SQL =>
+    and(
+      eq(messengerAccountLinks.userId, this.userId),
+      this.workspaceId
+        ? eq(messengerAccountLinks.workspaceId, this.workspaceId)
+        : isNull(messengerAccountLinks.workspaceId),
+    ) as SQL;
+
+  private isSameWorkspace = (row: MessengerAccountLinkItem): boolean =>
+    (row.workspaceId ?? null) === (this.workspaceId ?? null);
 
   // --------------- User-scoped CRUD ---------------
 
@@ -87,6 +100,7 @@ export class MessengerAccountLinkModel {
           tenantId,
           updatedAt: now,
           userId: this.userId,
+          workspaceId: this.workspaceId ?? null,
         })
         .onConflictDoNothing({
           target: [
@@ -125,6 +139,9 @@ export class MessengerAccountLinkModel {
       if (byIdentity.userId !== this.userId) {
         throw new MessengerAccountLinkConflictError(byIdentity.userId);
       }
+      if (!this.isSameWorkspace(byIdentity)) {
+        throw new MessengerAccountLinkRelinkRequiredError();
+      }
       const [updated] = await this.db
         .update(messengerAccountLinks)
         .set({
@@ -161,14 +178,11 @@ export class MessengerAccountLinkModel {
   delete = async (id: string) => {
     return this.db
       .delete(messengerAccountLinks)
-      .where(and(eq(messengerAccountLinks.id, id), eq(messengerAccountLinks.userId, this.userId)));
+      .where(and(eq(messengerAccountLinks.id, id), this.ownership()));
   };
 
   deleteByPlatform = async (platform: string, tenantId?: string) => {
-    const conditions: SQL[] = [
-      eq(messengerAccountLinks.userId, this.userId),
-      eq(messengerAccountLinks.platform, platform),
-    ];
+    const conditions: SQL[] = [this.ownership(), eq(messengerAccountLinks.platform, platform)];
     if (tenantId !== undefined) {
       conditions.push(eq(messengerAccountLinks.tenantId, tenantId));
     }
@@ -176,10 +190,7 @@ export class MessengerAccountLinkModel {
   };
 
   list = async (): Promise<MessengerAccountLinkItem[]> => {
-    return this.db
-      .select()
-      .from(messengerAccountLinks)
-      .where(eq(messengerAccountLinks.userId, this.userId));
+    return this.db.select().from(messengerAccountLinks).where(this.ownership());
   };
 
   /**
@@ -192,10 +203,7 @@ export class MessengerAccountLinkModel {
     platform: string,
     tenantId?: string,
   ): Promise<MessengerAccountLinkItem | undefined> => {
-    const conditions: SQL[] = [
-      eq(messengerAccountLinks.userId, this.userId),
-      eq(messengerAccountLinks.platform, platform),
-    ];
+    const conditions: SQL[] = [this.ownership(), eq(messengerAccountLinks.platform, platform)];
     if (tenantId !== undefined) {
       conditions.push(eq(messengerAccountLinks.tenantId, tenantId));
     }
@@ -214,10 +222,7 @@ export class MessengerAccountLinkModel {
     agentId: string | null,
     tenantId?: string,
   ): Promise<MessengerAccountLinkItem | undefined> => {
-    const conditions: SQL[] = [
-      eq(messengerAccountLinks.userId, this.userId),
-      eq(messengerAccountLinks.platform, platform),
-    ];
+    const conditions: SQL[] = [this.ownership(), eq(messengerAccountLinks.platform, platform)];
     if (tenantId !== undefined) {
       conditions.push(eq(messengerAccountLinks.tenantId, tenantId));
     }

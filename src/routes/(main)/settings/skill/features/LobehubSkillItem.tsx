@@ -1,7 +1,7 @@
 'use client';
 
 import { type LobehubSkillProviderType } from '@lobechat/const';
-import { Avatar, Button as LobeButton, DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
+import { Avatar, Button as LobeButton, DropdownMenu, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { confirmModal } from '@lobehub/ui/base-ui';
 import { Button } from 'antd';
 import { cssVar } from 'antd-style';
@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 
 import SkillSourceTag from '@/components/SkillSourceTag';
 import { createLobehubSkillDetailModal } from '@/features/SkillStore/SkillDetail';
+import { usePermission } from '@/hooks/usePermission';
 import { useToolStore } from '@/store/tool';
 import { type LobehubSkillServer } from '@/store/tool/slices/lobehubSkillStore/types';
 import { LobehubSkillStatus } from '@/store/tool/slices/lobehubSkillStore/types';
@@ -27,6 +28,8 @@ interface LobehubSkillItemProps {
 
 const LobehubSkillItem = memo<LobehubSkillItemProps>(({ provider, server }) => {
   const { t } = useTranslation('setting');
+  const { allowed: canCreate, reason: createReason } = usePermission('create_content');
+  const { allowed: canEdit, reason: editReason } = usePermission('edit_own_content');
   const [isConnecting, setIsConnecting] = useState(false);
   const [isWaitingAuth, setIsWaitingAuth] = useState(false);
 
@@ -148,6 +151,7 @@ const LobehubSkillItem = memo<LobehubSkillItemProps>(({ provider, server }) => {
   }, [provider.id, cleanup, checkStatus]);
 
   const handleConnect = async () => {
+    if (!canCreate || !canEdit) return;
     if (server?.isConnected) return;
 
     setIsConnecting(true);
@@ -166,6 +170,7 @@ const LobehubSkillItem = memo<LobehubSkillItemProps>(({ provider, server }) => {
   };
 
   const handleDisconnect = () => {
+    if (!canEdit) return;
     if (!server) return;
     confirmModal({
       cancelText: t('cancel', { ns: 'common' }),
@@ -228,9 +233,16 @@ const LobehubSkillItem = memo<LobehubSkillItemProps>(({ provider, server }) => {
 
     if (!server || server.status !== LobehubSkillStatus.CONNECTED) {
       return (
-        <Button icon={<Icon icon={SquareArrowOutUpRight} />} type="default" onClick={handleConnect}>
-          {t('tools.lobehubSkill.connect')}
-        </Button>
+        <Tooltip title={!canCreate ? createReason : editReason}>
+          <Button
+            disabled={!canCreate || !canEdit}
+            icon={<Icon icon={SquareArrowOutUpRight} />}
+            type="default"
+            onClick={handleConnect}
+          >
+            {t('tools.lobehubSkill.connect')}
+          </Button>
+        </Tooltip>
       );
     }
 
@@ -242,11 +254,14 @@ const LobehubSkillItem = memo<LobehubSkillItemProps>(({ provider, server }) => {
             icon: <Icon icon={Unplug} />,
             key: 'disconnect',
             label: t('tools.lobehubSkill.disconnect', { defaultValue: 'Disconnect' }),
+            disabled: !canEdit,
             onClick: handleDisconnect,
           },
         ]}
       >
-        <LobeButton icon={MoreHorizontalIcon} />
+        <Tooltip title={editReason}>
+          <LobeButton disabled={!canEdit} icon={MoreHorizontalIcon} />
+        </Tooltip>
       </DropdownMenu>
     );
   };

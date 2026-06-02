@@ -10,12 +10,14 @@ import RingLoadingIcon from '@/components/RingLoading';
 import { SESSION_CHAT_TOPIC_URL } from '@/const/url';
 import { isDesktop } from '@/const/version';
 import NavItem from '@/features/NavPanel/components/NavItem';
+import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
 import { getPlatformIcon } from '@/routes/(main)/agent/channel/const';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { operationSelectors } from '@/store/chat/selectors';
 import { useElectronStore } from '@/store/electron';
+import { useWorkspaceStore, workspaceSelectors } from '@/store/workspace';
 
 import { useTopicNavigation } from '../../hooks/useTopicNavigation';
 import ThreadList from '../../TopicListContent/ThreadList';
@@ -97,6 +99,9 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, meta
   const { t } = useTranslation('topic');
   const { isDarkMode } = useTheme();
   const activeAgentId = useAgentStore((s) => s.activeAgentId);
+  const activeWorkspaceSlug = useWorkspaceStore(
+    (s) => workspaceSelectors.activeWorkspace(s)?.slug ?? null,
+  );
   // Heterogeneous agents (Claude Code, Codex, …) don't have the chat-style
   // topic semantics, so skip the default `#` placeholder icon for their rows.
   const isHeterogeneousAgent = useAgentStore(agentSelectors.isCurrentAgentHeterogeneous);
@@ -109,8 +114,8 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, meta
   // Construct href for cmd+click support
   const href = useMemo(() => {
     if (!activeAgentId || !id) return undefined;
-    return SESSION_CHAT_TOPIC_URL(activeAgentId, id);
-  }, [activeAgentId, id]);
+    return buildWorkspaceAwarePath(SESSION_CHAT_TOPIC_URL(activeAgentId, id), activeWorkspaceSlug);
+  }, [activeAgentId, activeWorkspaceSlug, id]);
 
   const [editing, isLoading] = useChatStore((s) => [
     id ? s.topicRenamingId === id : false,
