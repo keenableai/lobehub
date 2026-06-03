@@ -1,4 +1,4 @@
-import { and, eq, isNull, type SQL } from 'drizzle-orm';
+import { and, eq, type SQL } from 'drizzle-orm';
 
 import type { MessengerAccountLinkItem, NewMessengerAccountLink } from '../schemas';
 import { messengerAccountLinks } from '../schemas';
@@ -44,24 +44,18 @@ export class MessengerAccountLinkRelinkRequiredError extends Error {
 export class MessengerAccountLinkModel {
   private userId: string;
   private db: LobeChatDatabase;
-  private workspaceId?: string;
 
-  constructor(db: LobeChatDatabase, userId: string, workspaceId?: string) {
+  constructor(db: LobeChatDatabase, userId: string) {
     this.userId = userId;
     this.db = db;
-    this.workspaceId = workspaceId;
   }
 
-  private ownership = (): SQL =>
-    and(
-      eq(messengerAccountLinks.userId, this.userId),
-      this.workspaceId
-        ? eq(messengerAccountLinks.workspaceId, this.workspaceId)
-        : isNull(messengerAccountLinks.workspaceId),
-    ) as SQL;
-
-  private isSameWorkspace = (row: MessengerAccountLinkItem): boolean =>
-    (row.workspaceId ?? null) === (this.workspaceId ?? null);
+  // A given IM identity maps to exactly one link per `(userId, platform,
+  // tenantId)` — the unique index already enforces this — so ownership is
+  // purely by `userId`. `workspaceId` on the row is the *active scope* (derived
+  // from the active agent), NOT part of the link's identity, so it must not
+  // scope lookups; otherwise switching scope would orphan the existing link.
+  private ownership = (): SQL => eq(messengerAccountLinks.userId, this.userId);
 
   // --------------- User-scoped CRUD ---------------
 
@@ -100,7 +94,7 @@ export class MessengerAccountLinkModel {
           tenantId,
           updatedAt: now,
           userId: this.userId,
-          workspaceId: this.workspaceId ?? null,
+          workspaceId: params.workspaceId ?? null,
         })
         .onConflictDoNothing({
           target: [
@@ -139,15 +133,13 @@ export class MessengerAccountLinkModel {
       if (byIdentity.userId !== this.userId) {
         throw new MessengerAccountLinkConflictError(byIdentity.userId);
       }
-      if (!this.isSameWorkspace(byIdentity)) {
-        throw new MessengerAccountLinkRelinkRequiredError();
-      }
       const [updated] = await this.db
         .update(messengerAccountLinks)
         .set({
           activeAgentId: params.activeAgentId ?? byIdentity.activeAgentId,
           platformUsername: params.platformUsername ?? null,
           updatedAt: now,
+          workspaceId: params.workspaceId ?? null,
         })
         .where(eq(messengerAccountLinks.id, byIdentity.id))
         .returning();
@@ -166,6 +158,7 @@ export class MessengerAccountLinkModel {
           activeAgentId: params.activeAgentId ?? existingForUser.activeAgentId,
           platformUsername: params.platformUsername ?? null,
           updatedAt: now,
+          workspaceId: params.workspaceId ?? null,
         })
         .where(eq(messengerAccountLinks.id, existingForUser.id))
         .returning();
@@ -216,10 +209,15 @@ export class MessengerAccountLinkModel {
     return result;
   };
 
-  /** Update which agent the IM session is currently routed to. */
+  /**
+   * Update which agent the IM session is currently routed to, together with
+   * the active scope (`workspaceId`) derived from that agent. Passing
+   * `agentId: null` clears the active agent and resets the scope to personal.
+   */
   setActiveAgent = async (
     platform: string,
     agentId: string | null,
+    workspaceId: string | null,
     tenantId?: string,
   ): Promise<MessengerAccountLinkItem | undefined> => {
     const conditions: SQL[] = [this.ownership(), eq(messengerAccountLinks.platform, platform)];
@@ -229,7 +227,7 @@ export class MessengerAccountLinkModel {
 
     const [updated] = await this.db
       .update(messengerAccountLinks)
-      .set({ activeAgentId: agentId, updatedAt: new Date() })
+      .set({ activeAgentId: agentId, updatedAt: new Date(), workspaceId })
       .where(and(...conditions))
       .returning();
 
@@ -277,6 +275,25 @@ export class MessengerAccountLinkModel {
     const [updated] = await db
       .update(messengerAccountLinks)
       .set({ activeAgentId: agentId, updatedAt: new Date() })
+      .where(eq(messengerAccountLinks.id, linkId))
+      .returning();
+    return updated;
+  };
+
+  /**
+   * Static scope switch used by IM `/switch`. Moves the link to a new active
+   * scope (personal → `null`, or a workspace id) and clears the active agent,
+   * since the previous agent belonged to the old scope. Caller must authorize
+   * access to the target scope first.
+   */
+  static setActiveScope = async (
+    db: LobeChatDatabase,
+    linkId: string,
+    workspaceId: string | null,
+  ): Promise<MessengerAccountLinkItem | undefined> => {
+    const [updated] = await db
+      .update(messengerAccountLinks)
+      .set({ activeAgentId: null, updatedAt: new Date(), workspaceId })
       .where(eq(messengerAccountLinks.id, linkId))
       .returning();
     return updated;

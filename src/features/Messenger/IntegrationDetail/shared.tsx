@@ -1,12 +1,12 @@
 'use client';
 
 import { Block, Button, Flexbox, Icon, Skeleton, Tag, Text } from '@lobehub/ui';
-import { confirmModal } from '@lobehub/ui/base-ui';
+import { confirmModal, Select } from '@lobehub/ui/base-ui';
 import { App } from 'antd';
 import { createStaticStyles } from 'antd-style';
 import { ArrowLeftIcon, CheckCircle2Icon, Trash2Icon, UserIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { memo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 
@@ -215,6 +215,8 @@ interface UserLinkLike {
   activeAgentId: string | null;
   platformUserId: string;
   platformUsername: string | null;
+  /** Active scope of this link: a workspace id, or null for personal. */
+  workspaceId: string | null;
 }
 
 export const formatUserHandle = (link: UserLinkLike): string =>
@@ -233,6 +235,26 @@ export const UserAgentConnection = memo<UserAgentConnectionProps>(
     const { allowed: canEdit } = usePermission('edit_own_content');
     const handle = formatUserHandle(link);
     const name = extraLabel ? `${handle} · ${extraLabel}` : handle;
+
+    // First-level "scope" selector — personal plus every workspace the user
+    // belongs to. The bot is a single shared bot; which LobeHub context a
+    // conversation runs in is the active agent's scope, so picking a scope just
+    // filters the agent list below. The active scope is persisted server-side
+    // only when an agent is chosen (it derives the workspace from the agent).
+    // `''` is the sentinel for personal (null).
+    const scopesSWR = useSWR('messenger:bindingScopes', () => messengerService.listBindingScopes());
+    const [scope, setScope] = useState<string>(link.workspaceId ?? '');
+
+    const scopeOptions = useMemo(
+      () => [
+        { label: t('messenger.scopePersonal'), value: '' },
+        ...(scopesSWR.data ?? []).map((w) => ({ label: w.name, value: w.id })),
+      ],
+      [scopesSWR.data, t],
+    );
+
+    const scopeWorkspaceId = scope || null;
+    const isActiveScope = scopeWorkspaceId === (link.workspaceId ?? null);
 
     return (
       <ConnectionRow
@@ -255,19 +277,36 @@ export const UserAgentConnection = memo<UserAgentConnectionProps>(
           </Button>
         }
       >
-        <Flexbox gap={6}>
-          <Text style={{ fontSize: 12 }} type="secondary">
-            {t('messenger.activeAgent')}
-          </Text>
-          <AgentSelect
-            disabled={!canEdit}
-            placeholder={t('messenger.activeAgentPlaceholder')}
-            value={link.activeAgentId ?? undefined}
-            onChange={(agentId) => {
-              if (!canEdit) return;
-              onSetActive((agentId ?? null) as string | null);
-            }}
-          />
+        <Flexbox gap={12}>
+          <Flexbox gap={6}>
+            <Text style={{ fontSize: 12 }} type="secondary">
+              {t('messenger.scope')}
+            </Text>
+            <Select
+              disabled={!canEdit}
+              options={scopeOptions}
+              value={scope}
+              onChange={(next) => setScope((next as string | null) ?? '')}
+            />
+          </Flexbox>
+          <Flexbox gap={6}>
+            <Text style={{ fontSize: 12 }} type="secondary">
+              {t('messenger.activeAgent')}
+            </Text>
+            <AgentSelect
+              disabled={!canEdit}
+              placeholder={t('messenger.activeAgentPlaceholder')}
+              // Only show the persisted active agent when the selected scope
+              // matches the link's active scope; otherwise the dropdown starts
+              // empty so the user explicitly picks an agent in the new scope.
+              value={isActiveScope ? (link.activeAgentId ?? undefined) : undefined}
+              workspaceId={scopeWorkspaceId}
+              onChange={(agentId) => {
+                if (!canEdit) return;
+                onSetActive((agentId ?? null) as string | null);
+              }}
+            />
+          </Flexbox>
         </Flexbox>
       </ConnectionRow>
     );

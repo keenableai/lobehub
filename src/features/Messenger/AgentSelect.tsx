@@ -12,12 +12,17 @@ import { messengerService } from '@/services/messenger';
 interface AgentSelectProps extends Omit<SelectProps<string>, 'options' | 'value' | 'onChange'> {
   onChange?: (agentId: string | undefined) => void;
   value?: string;
+  /** Scope to list agents for: a workspace id, or null/undefined for personal. */
+  workspaceId?: string | null;
 }
 
-const AgentSelect = memo<AgentSelectProps>(({ value, onChange, ...rest }) => {
+const AgentSelect = memo<AgentSelectProps>(({ value, onChange, workspaceId, ...rest }) => {
   const { t: tCommon } = useTranslation('common');
-  const agentsSWR = useSWR('messenger:agentsForBinding', () =>
-    messengerService.listAgentsForBinding(),
+  // Cascading fetch: agents are scoped to the selected `workspaceId` (or
+  // personal when null). The scope is part of the SWR key so switching scope
+  // refetches the right list.
+  const agentsSWR = useSWR(['messenger:agentsForBinding', workspaceId ?? null], () =>
+    messengerService.listAgentsForBinding(workspaceId),
   );
 
   const defaultAgentTitle = tCommon('defaultSession');

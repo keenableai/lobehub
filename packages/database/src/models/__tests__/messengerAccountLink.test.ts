@@ -235,51 +235,53 @@ describe('MessengerAccountLinkModel', () => {
     });
   });
 
-  describe('workspace scoping', () => {
-    it('keeps personal and workspace link lists isolated', async () => {
-      await new MessengerAccountLinkModel(serverDB, userA).upsertForPlatform({
+  describe('active scope (workspaceId)', () => {
+    // A given IM identity has exactly one link; `workspaceId` on it is the
+    // *active scope* derived from the active agent (personal → null), not part
+    // of the link's identity. Switching scope reuses the same row.
+    it('persists the active scope passed at upsert time', async () => {
+      const model = new MessengerAccountLinkModel(serverDB, userA);
+      const personal = await model.upsertForPlatform({
         activeAgentId: agentA,
         platform: 'telegram',
-        platformUserId: 'tg-personal',
+        platformUserId: 'tg-scope',
+        workspaceId: null,
       });
-      await new MessengerAccountLinkModel(serverDB, userA, workspaceA).upsertForPlatform({
+      expect(personal.workspaceId).toBeNull();
+
+      // Re-asserting the same identity with a workspace agent flips the active
+      // scope on the same row — no relink, single identity link.
+      const switched = await model.upsertForPlatform({
         activeAgentId: workspaceAgentA,
-        platform: 'slack',
-        platformUserId: 'U_WORKSPACE',
-        tenantId: 'T_WORKSPACE',
+        platform: 'telegram',
+        platformUserId: 'tg-scope',
+        workspaceId: workspaceA,
       });
-
-      const personalLinks = await new MessengerAccountLinkModel(serverDB, userA).list();
-      const workspaceLinks = await new MessengerAccountLinkModel(
-        serverDB,
-        userA,
-        workspaceA,
-      ).list();
-
-      expect(personalLinks.map((link) => link.platformUserId)).toEqual(['tg-personal']);
-      expect(workspaceLinks.map((link) => link.platformUserId)).toEqual(['U_WORKSPACE']);
+      expect(switched.id).toBe(personal.id);
+      expect(switched.workspaceId).toBe(workspaceA);
+      expect(switched.activeAgentId).toBe(workspaceAgentA);
     });
 
-    it('does not update a workspace link from personal mode', async () => {
-      await new MessengerAccountLinkModel(serverDB, userA, workspaceA).upsertForPlatform({
-        activeAgentId: workspaceAgentA,
-        platform: 'slack',
-        platformUserId: 'U_WORKSPACE',
-        tenantId: 'T_WORKSPACE',
+    it('setActiveAgent updates both the active agent and the derived scope', async () => {
+      const model = new MessengerAccountLinkModel(serverDB, userA);
+      await model.upsertForPlatform({
+        activeAgentId: agentA,
+        platform: 'telegram',
+        platformUserId: 'tg-switch',
+        workspaceId: null,
       });
 
-      await new MessengerAccountLinkModel(serverDB, userA).setActiveAgent(
-        'slack',
-        null,
-        'T_WORKSPACE',
-      );
+      // Switch into a workspace agent.
+      await model.setActiveAgent('telegram', workspaceAgentA, workspaceA);
+      let link = await model.findByPlatform('telegram');
+      expect(link?.activeAgentId).toBe(workspaceAgentA);
+      expect(link?.workspaceId).toBe(workspaceA);
 
-      const workspaceLink = await new MessengerAccountLinkModel(
-        serverDB,
-        userA,
-        workspaceA,
-      ).findByPlatform('slack', 'T_WORKSPACE');
-      expect(workspaceLink?.activeAgentId).toBe(workspaceAgentA);
+      // Switch back to personal.
+      await model.setActiveAgent('telegram', agentA, null);
+      link = await model.findByPlatform('telegram');
+      expect(link?.activeAgentId).toBe(agentA);
+      expect(link?.workspaceId).toBeNull();
     });
   });
 
@@ -299,7 +301,7 @@ describe('MessengerAccountLinkModel', () => {
         tenantId: 'T_BETA',
       });
 
-      await model.setActiveAgent('slack', null, 'T_ACME');
+      await model.setActiveAgent('slack', null, null, 'T_ACME');
 
       const acme = await model.findByPlatform('slack', 'T_ACME');
       const beta = await model.findByPlatform('slack', 'T_BETA');

@@ -13,6 +13,7 @@ import { and, desc, eq, ne, or } from 'drizzle-orm';
 import type { MessengerPlatform } from '@/config/messenger';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { MessengerAccountLinkModel } from '@/database/models/messengerAccountLink';
+import { WorkspaceModel } from '@/database/models/workspace';
 import type { MessengerAccountLinkItem } from '@/database/schemas';
 import { agents } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
@@ -117,6 +118,7 @@ interface MessengerCommand {
 const HELP_TEXT = [
   'Commands:',
   '• /start — bind (or rebind) your LobeHub account',
+  '• /switch — switch the active scope (personal or a workspace)',
   '• /agents — list your agents and switch the active one',
   '• /new — start a new conversation',
   '• /stop — stop the current execution',
@@ -171,6 +173,20 @@ const reconstructRequest = (req: Request, rawBody: string): Request =>
     headers: req.headers,
     method: req.method,
   } as RequestInit);
+
+/**
+ * Whether `userId` is still a member of `workspaceId`. The link's active scope
+ * may point at a workspace the user has since been removed from; dispatch must
+ * re-check before running that workspace's agent.
+ */
+const userIsWorkspaceMember = async (
+  db: LobeChatDatabase,
+  userId: string,
+  workspaceId: string,
+): Promise<boolean> => {
+  const workspaces = await new WorkspaceModel(db, userId).listUserWorkspaces();
+  return workspaces.some((w) => w.id === workspaceId);
+};
 
 /**
  * Routes inbound messages from the shared Messenger bots to the right
@@ -507,6 +523,29 @@ export class MessengerRouter {
           return;
         }
 
+        // Re-validate the active scope: it may point at a workspace the user
+        // has since been removed from. Don't run another workspace's agent for
+        // a non-member — prompt them to /switch back to a scope they can use.
+        if (
+          link.workspaceId &&
+          !(await userIsWorkspaceMember(serverDB, link.userId, link.workspaceId))
+        ) {
+          const staleScopeText =
+            'Your active workspace is no longer available. Send /switch to choose another scope.';
+          if (isChannelMention && binder.replyEphemeral) {
+            const threadTs = String(thread.id).split(':')[2];
+            await binder.replyEphemeral({
+              channelId: chatId,
+              text: staleScopeText,
+              threadTs,
+              userId: senderId,
+            });
+          } else {
+            await binder.sendDmText(chatId, staleScopeText);
+          }
+          return;
+        }
+
         await this.dispatchToAgent(
           thread,
           message,
@@ -772,6 +811,22 @@ export class MessengerRouter {
           await this.runAgentsCommand(ctx);
         },
         name: 'agents',
+      },
+      {
+        description: 'Switch the active scope (personal or a workspace)',
+        // Declared so Discord/Slack surface a `/switch <n>` argument in the
+        // slash picker; the no-arg form just lists the scopes.
+        options: [
+          {
+            description: 'Scope number from the /switch list',
+            name: 'scope',
+            required: false,
+          },
+        ],
+        handler: async (ctx) => {
+          await this.runSwitchCommand(ctx);
+        },
+        name: 'switch',
       },
       {
         description: 'Start a new conversation',
@@ -1075,6 +1130,52 @@ export class MessengerRouter {
     await ctx.reply(
       `Your agents:\n${lines.join('\n')}\n\nReply with /agents <n> to switch the active agent.`,
     );
+  }
+
+  /**
+   * `/switch` changes the active *scope* of the IM session — personal or one
+   * of the workspaces the user belongs to. The bot is a single shared bot, so
+   * which LobeHub context a conversation runs in is the active agent's scope;
+   * switching scope clears the active agent and the user re-picks via /agents.
+   *
+   * Text-based (numbered list + `/switch <n>`) so it works uniformly across
+   * every platform without needing a dedicated picker surface.
+   */
+  private async runSwitchCommand(ctx: MessengerCommandContext): Promise<void> {
+    const { link, serverDB } = ctx;
+    if (!link) {
+      await ctx.reply('You need to /start to bind your account first.');
+      return;
+    }
+
+    const workspaces = await new WorkspaceModel(serverDB, link.userId).listUserWorkspaces();
+    const scopes: { id: string | null; name: string }[] = [
+      { id: null, name: 'Personal' },
+      ...workspaces.map((w) => ({ id: w.id, name: w.name })),
+    ];
+
+    const arg = ctx.args.trim();
+    if (arg) {
+      const index = Number.parseInt(arg, 10);
+      if (!Number.isInteger(index) || index < 1 || index > scopes.length) {
+        await ctx.reply(`Usage: /switch <n>, where n is between 1 and ${scopes.length}.`);
+        return;
+      }
+      const target = scopes[index - 1];
+      if ((link.workspaceId ?? null) === target.id) {
+        await ctx.reply(`You're already in ${target.name}.`);
+        return;
+      }
+      await MessengerAccountLinkModel.setActiveScope(serverDB, link.id, target.id);
+      await ctx.reply(`Switched to ${target.name}. Send /agents to pick an agent in this scope.`);
+      return;
+    }
+
+    const lines = scopes.map((scope, i) => {
+      const marker = (link.workspaceId ?? null) === scope.id ? ' (current)' : '';
+      return `${i + 1}. ${scope.name}${marker}`;
+    });
+    await ctx.reply(`Scopes:\n${lines.join('\n')}\n\nReply with /switch <n> to switch scope.`);
   }
 
   private toPickerEntries(

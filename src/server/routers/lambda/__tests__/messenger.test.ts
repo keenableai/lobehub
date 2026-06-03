@@ -323,7 +323,9 @@ describe('messengerRouter.confirmLink', () => {
   });
 
   it('allows re-confirming the same Telegram account', async () => {
-    const selectBuilder = createSelectBuilder([{ id: 'agent-1', title: 'Agent 1' }]);
+    const selectBuilder = createSelectBuilder([
+      { id: 'agent-1', title: 'Agent 1', userId: 'user-1', workspaceId: null },
+    ]);
     const serverDB = { select: vi.fn(() => selectBuilder) };
     const linkPayload = {
       platform: 'telegram',
@@ -354,6 +356,7 @@ describe('messengerRouter.confirmLink', () => {
       platformUserId: 'tg-same',
       platformUsername: '@same',
       tenantId: '',
+      workspaceId: null,
     });
   });
 });
