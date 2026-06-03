@@ -46,6 +46,7 @@ export const workspaceMembers = pgTable(
       .notNull(),
     role: text('role').notNull().default('member'),
     joinedAt: timestamptz('joined_at').notNull().defaultNow(),
+    updatedAt: updatedAt(),
     deletedAt: timestamptz('deleted_at'),
   },
   (t) => [

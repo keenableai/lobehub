@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS "workspace_members" (
 	"user_id" text NOT NULL,
 	"role" text DEFAULT 'member' NOT NULL,
 	"joined_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"deleted_at" timestamp with time zone,
 	CONSTRAINT "workspace_members_workspace_id_user_id_pk" PRIMARY KEY("workspace_id","user_id")
 );
