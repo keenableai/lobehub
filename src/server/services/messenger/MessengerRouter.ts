@@ -1166,8 +1166,22 @@ export class MessengerRouter {
         await ctx.reply(`You're already in ${target.name}.`);
         return;
       }
-      await MessengerAccountLinkModel.setActiveScope(serverDB, link.id, target.id);
-      await ctx.reply(`Switched to ${target.name}. Send /agents to pick an agent in this scope.`);
+      // Land on the scope's default agent (inbox/LobeAI is pinned first by
+      // `fetchUserAgents`) so switching never leaves the session agent-less.
+      // Falls back to `null` only when the target scope has no agents yet.
+      const scopeAgents = await this.fetchUserAgents(serverDB, link.userId, target.id);
+      const defaultAgent = scopeAgents[0];
+      await MessengerAccountLinkModel.setActiveScope(
+        serverDB,
+        link.id,
+        target.id,
+        defaultAgent?.id ?? null,
+      );
+      await ctx.reply(
+        defaultAgent
+          ? `Switched to ${target.name}. Now chatting with ${defaultAgent.title}. Send /agents to change.`
+          : `Switched to ${target.name}. No agents here yet — create one in LobeHub, then /agents.`,
+      );
       return;
     }
 

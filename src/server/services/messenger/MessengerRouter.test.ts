@@ -1048,11 +1048,15 @@ describe('MessengerRouter /switch', () => {
     expect(text).toContain('Workspace 1');
   });
 
-  it('switches the active scope by index and clears the active agent', async () => {
+  it('switches the active scope by index and lands on the scope default agent', async () => {
     await loadSlackBot();
     mockFindLink.mockResolvedValue(personalLink);
     mockListUserWorkspaces.mockResolvedValue([
       { id: 'workspace-1', name: 'Workspace 1', role: 'owner' },
+    ]);
+    // `fetchUserAgents` pins the inbox/LobeAI first; `/switch` lands on it.
+    vi.spyOn(MessengerRouter.prototype as any, 'fetchUserAgents').mockResolvedValue([
+      { id: 'agt_inbox', title: 'LobeAI' },
     ]);
 
     const handler = mockChatBot.onNewMention.mock.calls[0][0] as (
@@ -1061,7 +1065,13 @@ describe('MessengerRouter /switch', () => {
     ) => Promise<void>;
     await handler(fakeDmThread(), fakeMessage({ isMention: true, text: '/switch 2' }));
 
-    // Index 2 = the first workspace (index 1 is Personal).
-    expect(mockSetActiveScope).toHaveBeenCalledWith(expect.anything(), 'link_1', 'workspace-1');
+    // Index 2 = the first workspace (index 1 is Personal); active agent is set
+    // to that scope's default (the inbox), not cleared.
+    expect(mockSetActiveScope).toHaveBeenCalledWith(
+      expect.anything(),
+      'link_1',
+      'workspace-1',
+      'agt_inbox',
+    );
   });
 });

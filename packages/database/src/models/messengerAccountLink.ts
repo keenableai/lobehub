@@ -282,18 +282,21 @@ export class MessengerAccountLinkModel {
 
   /**
    * Static scope switch used by IM `/switch`. Moves the link to a new active
-   * scope (personal → `null`, or a workspace id) and clears the active agent,
-   * since the previous agent belonged to the old scope. Caller must authorize
-   * access to the target scope first.
+   * scope (personal → `null`, or a workspace id) and sets the active agent to
+   * `agentId` — callers pass the scope's default agent (inbox/LobeAI) so
+   * switching never leaves the session agent-less; pass `null` only when the
+   * target scope has no agents. Caller must authorize access to the target
+   * scope first.
    */
   static setActiveScope = async (
     db: LobeChatDatabase,
     linkId: string,
     workspaceId: string | null,
+    agentId: string | null = null,
   ): Promise<MessengerAccountLinkItem | undefined> => {
     const [updated] = await db
       .update(messengerAccountLinks)
-      .set({ activeAgentId: null, updatedAt: new Date(), workspaceId })
+      .set({ activeAgentId: agentId, updatedAt: new Date(), workspaceId })
       .where(eq(messengerAccountLinks.id, linkId))
       .returning();
     return updated;
