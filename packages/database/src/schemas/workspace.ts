@@ -79,6 +79,7 @@ export const workspaceInvitations = pgTable(
     status: text('status').notNull().default('pending'),
     expiresAt: timestamptz('expires_at').notNull(),
     createdAt: createdAt(),
+    updatedAt: updatedAt(),
   },
   (t) => [
     index('workspace_invitations_workspace_id_idx').on(t.workspaceId),

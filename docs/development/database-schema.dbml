@@ -2450,6 +2450,7 @@ table workspace_invitations {
   status text [not null, default: 'pending']
   expires_at "timestamp with time zone" [not null]
   created_at "timestamp with time zone" [not null, default: `now()`]
+  updated_at "timestamp with time zone" [not null, default: `now()`]
 
   indexes {
     workspace_id [name: 'workspace_invitations_workspace_id_idx']

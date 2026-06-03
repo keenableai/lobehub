@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS "workspace_invitations" (
 	"status" text DEFAULT 'pending' NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "workspace_invitations_token_unique" UNIQUE("token")
 );
 --> statement-breakpoint
